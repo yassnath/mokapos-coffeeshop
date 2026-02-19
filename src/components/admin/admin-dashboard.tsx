@@ -4,7 +4,18 @@ import { Role } from "@prisma/client";
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, LayoutGrid, List, Loader2, Pencil, Plus, RefreshCcw, Trash2 } from "lucide-react";
+import {
+  Download,
+  Eye,
+  EyeOff,
+  LayoutGrid,
+  List,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCcw,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -47,9 +58,25 @@ type Props = {
 };
 
 type SummaryData = {
+  range?: {
+    start: string;
+    end: string;
+  };
   metrics: { totalSales: number; totalOrders: number; avgOrderValue: number };
   paymentBreakdown: Record<string, number>;
   bestSellers: Array<{ name: string; qty: number }>;
+  orderedItems: Array<{
+    id: string;
+    orderNumber: string;
+    placedAt: string;
+    productName: string;
+    quantity: number;
+    cashierName: string;
+    waiterName: string;
+    costAmount: number;
+    salesAmount: number;
+    profitAmount: number;
+  }>;
   discountAndVoidAudits: Array<{
     id: string;
     action: string;
@@ -97,6 +124,9 @@ type ShiftData = {
     status: string;
     openedAt: string;
     closedAt?: string;
+    totalSales: number;
+    totalCost: number;
+    totalProfit: number;
     expectedCash: number;
     actualCash: number;
     user: { name: string; role: string };
@@ -161,6 +191,30 @@ function deriveCostPrice(basePrice: number) {
   return Math.max(0, basePrice - 5000);
 }
 
+function toDateInputValue(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDateRangeByPeriod(period: "daily" | "weekly" | "monthly") {
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+
+  const start = new Date(end);
+  if (period === "weekly") {
+    start.setDate(start.getDate() - 6);
+  } else if (period === "monthly") {
+    start.setDate(start.getDate() - 29);
+  }
+
+  return {
+    from: toDateInputValue(start),
+    to: toDateInputValue(end),
+  };
+}
+
 function toProductForm(product: Product): ProductFormState {
   const basePrice = Number(product.basePrice) || 0;
   return {
@@ -222,6 +276,13 @@ function productCategoryBadgeClass(categoryName?: string | null) {
   return "border-gray-200 bg-gray-100 text-gray-600";
 }
 
+function productStockBadgeClass(stockValue?: number) {
+  const stock = typeof stockValue === "number" ? stockValue : 0;
+  if (stock <= 0) return "border-red-200 bg-red-100 text-red-800";
+  if (stock <= 50) return "border-amber-200 bg-amber-100 text-amber-800";
+  return "border-green-200 bg-green-100 text-green-800";
+}
+
 function shiftStatusBadgeClass(status: string) {
   if (status === "OPEN") return "border-green-200 bg-green-100 text-green-800";
   if (status === "CLOSED") return "border-red-200 bg-red-100 text-red-800";
@@ -240,8 +301,13 @@ function fileToDataUrl(file: File) {
 export function AdminDashboard({ storeId, role }: Props) {
   const queryClient = useQueryClient();
   const isAdmin = role === Role.ADMIN;
+  const defaultWeeklyRange = useMemo(() => getDateRangeByPeriod("weekly"), []);
 
-  const [period, setPeriod] = useState("daily");
+  const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("weekly");
+  const [overviewDateFrom, setOverviewDateFrom] = useState(defaultWeeklyRange.from);
+  const [overviewDateTo, setOverviewDateTo] = useState(defaultWeeklyRange.to);
+  const [shiftDateFrom, setShiftDateFrom] = useState(defaultWeeklyRange.from);
+  const [shiftDateTo, setShiftDateTo] = useState(defaultWeeklyRange.to);
   const [productView, setProductView] = useState<"list" | "card">("list");
 
   const [productDialogOpen, setProductDialogOpen] = useState(false);
@@ -253,9 +319,15 @@ export function AdminDashboard({ storeId, role }: Props) {
   const [staffDeleteId, setStaffDeleteId] = useState<string | null>(null);
 
   const summary = useQuery<SummaryData>({
-    queryKey: ["admin-summary", storeId, period],
+    queryKey: ["admin-summary", storeId, period, overviewDateFrom, overviewDateTo],
     queryFn: async () => {
-      const response = await fetch(`/api/reports/summary?storeId=${storeId}&period=${period}`);
+      const params = new URLSearchParams({
+        storeId,
+        period,
+        startDate: overviewDateFrom,
+        endDate: overviewDateTo,
+      });
+      const response = await fetch(`/api/reports/summary?${params.toString()}`);
       if (!response.ok) throw new Error("Failed summary");
       return response.json();
     },
@@ -282,8 +354,15 @@ export function AdminDashboard({ storeId, role }: Props) {
   });
 
   const shifts = useQuery<ShiftData>({
-    queryKey: ["admin-shifts", storeId],
-    queryFn: async () => (await fetch(`/api/shifts?storeId=${storeId}`)).json(),
+    queryKey: ["admin-shifts", storeId, shiftDateFrom, shiftDateTo],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        storeId,
+        startDate: shiftDateFrom,
+        endDate: shiftDateTo,
+      });
+      return (await fetch(`/api/shifts?${params.toString()}`)).json();
+    },
   });
 
   const staff = useQuery<StaffData>({
@@ -508,6 +587,13 @@ export function AdminDashboard({ storeId, role }: Props) {
   const adminNavTriggerClass =
     "text-foreground hover:bg-primary hover:text-white data-[state=active]:bg-primary data-[state=active]:text-white";
 
+  const handlePeriodChange = (nextPeriod: "daily" | "weekly" | "monthly") => {
+    setPeriod(nextPeriod);
+    const range = getDateRangeByPeriod(nextPeriod);
+    setOverviewDateFrom(range.from);
+    setOverviewDateTo(range.to);
+  };
+
   return (
     <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6">
       <Tabs defaultValue="overview">
@@ -527,26 +613,53 @@ export function AdminDashboard({ storeId, role }: Props) {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={period === "daily" ? "default" : "outline"}
+                onClick={() => handlePeriodChange("daily")}
+              >
+                Daily
+              </Button>
+              <Button
+                variant={period === "weekly" ? "default" : "outline"}
+                onClick={() => handlePeriodChange("weekly")}
+              >
+                Weekly
+              </Button>
+              <Button
+                variant={period === "monthly" ? "default" : "outline"}
+                onClick={() => handlePeriodChange("monthly")}
+              >
+                Monthly
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs text-neutral-500">Tanggal awal</Label>
+                <Input
+                  type="date"
+                  value={overviewDateFrom}
+                  onChange={(event) => setOverviewDateFrom(event.target.value)}
+                  className="w-[150px]"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-neutral-500">Tanggal akhir</Label>
+                <Input
+                  type="date"
+                  value={overviewDateTo}
+                  onChange={(event) => setOverviewDateTo(event.target.value)}
+                  className="w-[150px]"
+                />
+              </div>
+            </div>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              variant={period === "daily" ? "default" : "outline"}
-              onClick={() => setPeriod("daily")}
+              variant="outline"
+              asChild
             >
-              Daily
-            </Button>
-            <Button
-              variant={period === "weekly" ? "default" : "outline"}
-              onClick={() => setPeriod("weekly")}
-            >
-              Weekly
-            </Button>
-            <Button
-              variant={period === "monthly" ? "default" : "outline"}
-              onClick={() => setPeriod("monthly")}
-            >
-              Monthly
-            </Button>
-            <Button variant="outline" asChild>
               <a href={`/api/reports/export?storeId=${storeId}`}>
                 <Download className="mr-2 h-4 w-4" /> Export CSV
               </a>
@@ -610,6 +723,93 @@ export function AdminDashboard({ storeId, role }: Props) {
                   </CardContent>
                 </Card>
               </div>
+
+              <Card className="border-border bg-card rounded-3xl">
+                <CardHeader>
+                  <CardTitle>Menu Ordered Details</CardTitle>
+                  <CardDescription>
+                    Mengikuti filter period dan rentang tanggal yang dipilih.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="hidden md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Waktu</TableHead>
+                          <TableHead>Order</TableHead>
+                          <TableHead>Menu</TableHead>
+                          <TableHead>Qty</TableHead>
+                          <TableHead>Kasir</TableHead>
+                          <TableHead>Waiter</TableHead>
+                          <TableHead>Modal</TableHead>
+                          <TableHead>Jual</TableHead>
+                          {isAdmin && <TableHead>Profit</TableHead>}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(summary.data?.orderedItems ?? []).map((item) => (
+                          <TableRow key={item.id}>
+                            <TableCell>{formatDateTime(item.placedAt)}</TableCell>
+                            <TableCell>{item.orderNumber}</TableCell>
+                            <TableCell>{item.productName}</TableCell>
+                            <TableCell>{item.quantity}</TableCell>
+                            <TableCell>{item.cashierName || "-"}</TableCell>
+                            <TableCell>{item.waiterName || "-"}</TableCell>
+                            <TableCell>{formatCurrency(item.costAmount)}</TableCell>
+                            <TableCell>{formatCurrency(item.salesAmount)}</TableCell>
+                            {isAdmin && (
+                              <TableCell className="text-success">
+                                {formatCurrency(item.profitAmount)}
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="space-y-3 md:hidden">
+                    {(summary.data?.orderedItems ?? []).map((item) => (
+                      <article
+                        key={item.id}
+                        className="border-border space-y-2 rounded-2xl border bg-white p-3"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-semibold">{item.productName}</div>
+                          <Badge variant="secondary">x{item.quantity}</Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div>
+                            <span className="text-neutral-500">Order:</span> {item.orderNumber}
+                          </div>
+                          <div>
+                            <span className="text-neutral-500">Kasir:</span> {item.cashierName || "-"}
+                          </div>
+                          <div>
+                            <span className="text-neutral-500">Waiter:</span> {item.waiterName || "-"}
+                          </div>
+                          <div>
+                            <span className="text-neutral-500">Waktu:</span> {formatDateTime(item.placedAt)}
+                          </div>
+                          <div>
+                            <span className="text-neutral-500">Modal:</span>{" "}
+                            {formatCurrency(item.costAmount)}
+                          </div>
+                          <div>
+                            <span className="text-neutral-500">Jual:</span> {formatCurrency(item.salesAmount)}
+                          </div>
+                          {isAdmin && (
+                            <div className="col-span-2 text-success">
+                              <span className="text-neutral-500">Profit:</span>{" "}
+                              {formatCurrency(item.profitAmount)}
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             </>
           )}
         </TabsContent>
@@ -659,104 +859,191 @@ export function AdminDashboard({ storeId, role }: Props) {
             <TabsContent value="list">
               <Card className="border-border bg-card rounded-3xl">
                 <CardContent className="pt-6">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Product</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Stock</TableHead>
-                        {isAdmin && <TableHead>Modal</TableHead>}
-                        <TableHead>Jual</TableHead>
-                        {isAdmin && <TableHead>Profit</TableHead>}
-                        <TableHead>Available</TableHead>
-                        <TableHead>Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(products.data?.products ?? []).map((product) => (
-                        <TableRow key={product.id}>
-                          <TableCell>
-                            <div className="flex flex-col items-center gap-1">
-                              <div className="font-medium">{product.name}</div>
-                              {!product.isAvailable && (
-                                <span className="text-danger text-xs">Not available</span>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <span
-                              className={cn(
-                                "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
-                                productCategoryBadgeClass(product.categoryName),
-                              )}
-                            >
-                              {product.categoryName ?? "-"}
-                            </span>
-                          </TableCell>
-                          <TableCell>{product.stock ?? 100}</TableCell>
-                          {isAdmin && (
-                            <TableCell>{formatCurrency(product.costPrice ?? 0)}</TableCell>
-                          )}
-                          <TableCell>{formatCurrency(product.basePrice)}</TableCell>
-                          {isAdmin && (
-                            <TableCell className="text-success">
-                              {formatCurrency(product.profitPerItem ?? 0)}
+                  <div className="hidden md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Product</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Stock</TableHead>
+                          {isAdmin && <TableHead>Modal</TableHead>}
+                          <TableHead>Jual</TableHead>
+                          {isAdmin && <TableHead>Profit</TableHead>}
+                          <TableHead>Available</TableHead>
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(products.data?.products ?? []).map((product) => (
+                          <TableRow key={product.id}>
+                            <TableCell>
+                              <div className="flex flex-col items-center gap-1">
+                                <div className="font-medium">{product.name}</div>
+                                {!product.isAvailable && (
+                                  <span className="text-danger text-xs">Not available</span>
+                                )}
+                              </div>
                             </TableCell>
-                          )}
-                          <TableCell>
-                            <div className="flex justify-center">
-                              <div className="border-border rounded-full border p-1">
-                                <Switch
-                                  checked={product.isAvailable}
-                                  onCheckedChange={(checked) =>
-                                    toggleProductAvailability.mutate({
-                                      id: product.id,
-                                      isAvailable: checked,
-                                    })
-                                  }
-                                />
+                            <TableCell>
+                              <span
+                                className={cn(
+                                  "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+                                  productCategoryBadgeClass(product.categoryName),
+                                )}
+                              >
+                                {product.categoryName ?? "-"}
+                              </span>
+                            </TableCell>
+                            <TableCell>{product.stock ?? 100}</TableCell>
+                            {isAdmin && (
+                              <TableCell>{formatCurrency(product.costPrice ?? 0)}</TableCell>
+                            )}
+                            <TableCell>{formatCurrency(product.basePrice)}</TableCell>
+                            {isAdmin && (
+                              <TableCell className="text-success">
+                                {formatCurrency(product.profitPerItem ?? 0)}
+                              </TableCell>
+                            )}
+                            <TableCell>
+                              <div className="flex justify-center">
+                                <div className="border-border rounded-full border p-1">
+                                  <Switch
+                                    checked={product.isAvailable}
+                                    onCheckedChange={(checked) =>
+                                      toggleProductAvailability.mutate({
+                                        id: product.id,
+                                        isAvailable: checked,
+                                      })
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="inline-flex gap-2">
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="hover:border-primary hover:bg-primary hover:text-white"
+                                  aria-label="Edit product"
+                                  onClick={() => {
+                                    setProductForm(toProductForm(product));
+                                    setProductDialogOpen(true);
+                                  }}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => setProductDeleteId(product.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="space-y-3 md:hidden">
+                    {(products.data?.products ?? []).map((product) => (
+                      <article
+                        key={product.id}
+                        className="border-border space-y-3 rounded-2xl border bg-white p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-semibold">{product.name}</div>
+                            {!product.isAvailable && (
+                              <div className="text-danger mt-0.5 text-xs">Not available</div>
+                            )}
+                          </div>
+                          <span
+                            className={cn(
+                              "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+                              productCategoryBadgeClass(product.categoryName),
+                            )}
+                          >
+                            {product.categoryName ?? "-"}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="border-border rounded-xl border bg-white p-2">
+                            <div className="text-xs text-neutral-500">Stock</div>
+                            <div className="font-semibold">{product.stock ?? 100}</div>
+                          </div>
+                          <div className="border-border rounded-xl border bg-white p-2">
+                            <div className="text-xs text-neutral-500">Jual</div>
+                            <div className="font-semibold">{formatCurrency(product.basePrice)}</div>
+                          </div>
+                          {isAdmin && (
+                            <div className="border-border rounded-xl border bg-white p-2">
+                              <div className="text-xs text-neutral-500">Modal</div>
+                              <div className="font-semibold">
+                                {formatCurrency(product.costPrice ?? 0)}
                               </div>
                             </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="inline-flex gap-2">
-                              <Button
-                                size="icon"
-                                variant="outline"
-                                className="hover:border-primary hover:bg-primary hover:text-white"
-                                aria-label="Edit product"
-                                onClick={() => {
-                                  setProductForm(toProductForm(product));
-                                  setProductDialogOpen(true);
-                                }}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => setProductDeleteId(product.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                          )}
+                          {isAdmin && (
+                            <div className="border-border rounded-xl border bg-white p-2">
+                              <div className="text-xs text-neutral-500">Profit</div>
+                              <div className="text-success font-semibold">
+                                {formatCurrency(product.profitPerItem ?? 0)}
+                              </div>
                             </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="border-border rounded-full border p-1">
+                            <Switch
+                              checked={product.isAvailable}
+                              onCheckedChange={(checked) =>
+                                toggleProductAvailability.mutate({
+                                  id: product.id,
+                                  isAvailable: checked,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="inline-flex gap-2">
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              className="hover:border-primary hover:bg-primary hover:text-white"
+                              aria-label="Edit product"
+                              onClick={() => {
+                                setProductForm(toProductForm(product));
+                                setProductDialogOpen(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => setProductDeleteId(product.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
 
             <TabsContent value="card">
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 lg:gap-5 xl:grid-cols-5">
                 {(products.data?.products ?? []).map((product) => (
                   <Card
                     key={product.id}
                     className="border-border bg-card overflow-hidden rounded-3xl"
                   >
-                    <div className="bg-muted relative h-44 w-full">
+                    <div className="bg-muted relative h-52 w-full">
                       {product.imageUrl ? (
                         <Image
                           src={product.imageUrl}
@@ -771,66 +1058,68 @@ export function AdminDashboard({ storeId, role }: Props) {
                           No image
                         </div>
                       )}
+                      <span
+                        className={cn(
+                          "absolute right-2 bottom-2 rounded-full border px-2 py-0.5 text-xs font-semibold shadow-sm",
+                          productStockBadgeClass(product.stock),
+                        )}
+                      >
+                        Stok: {product.stock ?? 100}
+                      </span>
                     </div>
-                    <CardContent className="space-y-1.5 p-3">
-                      <div className="line-clamp-1 text-sm leading-tight font-semibold">
+                    <CardContent className="space-y-1 p-3">
+                      <div className="line-clamp-1 text-[15px] leading-tight font-semibold">
                         {product.name}
                       </div>
-                      <div>
+                      <div className="-mt-0.5 mb-0.5">
                         <span
                           className={cn(
-                            "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                            "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
                             productCategoryBadgeClass(product.categoryName),
                           )}
                         >
                           {product.categoryName ?? "-"}
                         </span>
                       </div>
-                      <div className="grid grid-cols-2 gap-1.5 text-xs">
-                        <div className="rounded-xl bg-white p-1.5">
-                          <div className="text-[11px] text-neutral-500">Stock</div>
-                          <div className="font-medium">{product.stock ?? 100}</div>
-                        </div>
-                        <div className="rounded-xl bg-white p-1.5">
-                          <div className="text-[11px] text-neutral-500">Jual</div>
-                          <div className="font-medium leading-tight">
+                      <div className="flex items-end justify-between gap-2 pt-0.5">
+                        <div className="min-w-0 flex-1">
+                          {isAdmin && (
+                            <div className="text-xs text-neutral-500">
+                              Modal:{" "}
+                              <span className="font-medium text-neutral-700">
+                                {formatCurrency(product.costPrice ?? 0)}
+                              </span>
+                            </div>
+                          )}
+                          <div className="text-[18px] leading-tight font-bold">
                             {formatCurrency(product.basePrice)}
                           </div>
                         </div>
-                        {isAdmin && (
-                          <div className="rounded-xl bg-white p-1.5">
-                            <div className="text-[11px] text-neutral-500">Profit</div>
-                            <div className="text-success font-medium leading-tight">
-                              {formatCurrency(product.profitPerItem ?? 0)}
-                            </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <div className="border-border rounded-full border p-1">
+                            <Switch
+                              checked={product.isAvailable}
+                              onCheckedChange={(checked) =>
+                                toggleProductAvailability.mutate({
+                                  id: product.id,
+                                  isAvailable: checked,
+                                })
+                              }
+                            />
                           </div>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between pt-0.5">
-                        <div className="border-border rounded-full border p-1">
-                          <Switch
-                            checked={product.isAvailable}
-                            onCheckedChange={(checked) =>
-                              toggleProductAvailability.mutate({
-                                id: product.id,
-                                isAvailable: checked,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="flex gap-2">
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="outline"
+                            className="border-[#6F4E37]/35 text-[#6F4E37] hover:bg-primary hover:text-white"
                             onClick={() => {
                               setProductForm(toProductForm(product));
                               setProductDialogOpen(true);
                             }}
                           >
-                            Edit
+                            <Pencil className="h-4 w-4" />
                           </Button>
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="destructive"
                             onClick={() => setProductDeleteId(product.id)}
                           >
@@ -871,37 +1160,96 @@ export function AdminDashboard({ storeId, role }: Props) {
                   Staff CRUD hanya untuk ADMIN.
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Nama</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Username</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  <div className="hidden md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nama</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Username</TableHead>
+                          <TableHead>Role</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(staff.data?.users ?? []).map((user) => (
+                          <TableRow key={user.id}>
+                            <TableCell>{user.name}</TableCell>
+                            <TableCell>{user.email ?? "-"}</TableCell>
+                            <TableCell>{user.username ?? "-"}</TableCell>
+                            <TableCell>
+                              <Badge variant="secondary" className={roleBadgeClass(user.role)}>
+                                {user.role}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="secondary"
+                                className={staffStatusBadgeClass(user.isActive)}
+                              >
+                                {user.isActive ? "ACTIVE" : "INACTIVE"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="inline-flex gap-2">
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="hover:border-primary hover:bg-primary hover:text-white"
+                                  aria-label="Edit staff"
+                                  onClick={() => {
+                                    setStaffForm({
+                                      id: user.id,
+                                      name: user.name,
+                                      email: user.email ?? "",
+                                      username: user.username ?? "",
+                                      role: user.role,
+                                      password: "",
+                                      pin: "",
+                                      defaultStoreId: user.defaultStoreId ?? storeId,
+                                      isActive: user.isActive,
+                                    });
+                                    setStaffDialogOpen(true);
+                                  }}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => setStaffDeleteId(user.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="space-y-3 md:hidden">
                     {(staff.data?.users ?? []).map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell>{user.name}</TableCell>
-                        <TableCell>{user.email ?? "-"}</TableCell>
-                        <TableCell>{user.username ?? "-"}</TableCell>
-                        <TableCell>
+                      <article
+                        key={user.id}
+                        className="border-border space-y-2 rounded-2xl border bg-white p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-semibold">{user.name}</div>
+                            <div className="text-xs text-neutral-500">{user.email ?? "-"}</div>
+                          </div>
                           <Badge variant="secondary" className={roleBadgeClass(user.role)}>
                             {user.role}
                           </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="secondary"
-                            className={staffStatusBadgeClass(user.isActive)}
-                          >
+                        </div>
+                        <div className="text-sm text-neutral-600">Username: {user.username ?? "-"}</div>
+                        <div className="flex items-center justify-between">
+                          <Badge variant="secondary" className={staffStatusBadgeClass(user.isActive)}>
                             {user.isActive ? "ACTIVE" : "INACTIVE"}
                           </Badge>
-                        </TableCell>
-                        <TableCell>
                           <div className="inline-flex gap-2">
                             <Button
                               size="icon"
@@ -933,33 +1281,55 @@ export function AdminDashboard({ storeId, role }: Props) {
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                      </article>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
 
           <Card className="border-border bg-card rounded-3xl">
-            <CardHeader>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <CardTitle>Shift Summary & Reconciliation</CardTitle>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs text-neutral-500">Tanggal awal</Label>
+                  <Input
+                    type="date"
+                    value={shiftDateFrom}
+                    onChange={(event) => setShiftDateFrom(event.target.value)}
+                    className="w-[150px]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-neutral-500">Tanggal akhir</Label>
+                  <Input
+                    type="date"
+                    value={shiftDateTo}
+                    onChange={(event) => setShiftDateTo(event.target.value)}
+                    className="w-[150px]"
+                  />
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Staff</TableHead>
-                    <TableHead>Register</TableHead>
-                    <TableHead>Opened</TableHead>
-                    <TableHead>Closed</TableHead>
-                    <TableHead>Expected</TableHead>
-                    <TableHead>Actual</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Staff</TableHead>
+                      <TableHead>Register</TableHead>
+                      <TableHead>Opened</TableHead>
+                      <TableHead>Closed</TableHead>
+                      <TableHead>Modal</TableHead>
+                      <TableHead>Jual</TableHead>
+                      {isAdmin && <TableHead>Profit</TableHead>}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {(shifts.data?.shifts ?? []).map((shift) => (
                       <TableRow key={shift.id}>
                         <TableCell>
@@ -967,16 +1337,64 @@ export function AdminDashboard({ storeId, role }: Props) {
                             {shift.status}
                           </Badge>
                         </TableCell>
-                      <TableCell>{shift.user.name}</TableCell>
-                      <TableCell>{shift.register.name}</TableCell>
-                      <TableCell>{formatDateTime(shift.openedAt)}</TableCell>
-                      <TableCell>{shift.closedAt ? formatDateTime(shift.closedAt) : "-"}</TableCell>
-                      <TableCell>{formatCurrency(shift.expectedCash)}</TableCell>
-                      <TableCell>{formatCurrency(shift.actualCash)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                        <TableCell>{shift.user.name}</TableCell>
+                        <TableCell>{shift.register.name}</TableCell>
+                        <TableCell>{formatDateTime(shift.openedAt)}</TableCell>
+                        <TableCell>{shift.closedAt ? formatDateTime(shift.closedAt) : "-"}</TableCell>
+                        <TableCell>{formatCurrency(shift.totalCost)}</TableCell>
+                        <TableCell>{formatCurrency(shift.totalSales)}</TableCell>
+                        {isAdmin && (
+                          <TableCell className="text-success">
+                            {formatCurrency(shift.totalProfit)}
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="space-y-3 md:hidden">
+                {(shifts.data?.shifts ?? []).map((shift) => (
+                  <article
+                    key={shift.id}
+                    className="border-border space-y-2 rounded-2xl border bg-white p-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <Badge variant="secondary" className={shiftStatusBadgeClass(shift.status)}>
+                        {shift.status}
+                      </Badge>
+                      <span className="text-xs text-neutral-500">{shift.register.name}</span>
+                    </div>
+                    <div className="text-sm">
+                      <div>
+                        <span className="text-neutral-500">Staff:</span> {shift.user.name}
+                      </div>
+                      <div>
+                        <span className="text-neutral-500">Opened:</span>{" "}
+                        {formatDateTime(shift.openedAt)}
+                      </div>
+                      <div>
+                        <span className="text-neutral-500">Closed:</span>{" "}
+                        {shift.closedAt ? formatDateTime(shift.closedAt) : "-"}
+                      </div>
+                      <div>
+                        <span className="text-neutral-500">Modal:</span>{" "}
+                        {formatCurrency(shift.totalCost)}
+                      </div>
+                      <div>
+                        <span className="text-neutral-500">Jual:</span>{" "}
+                        {formatCurrency(shift.totalSales)}
+                      </div>
+                      {isAdmin && (
+                        <div className="text-success">
+                          <span className="text-neutral-500">Profit:</span>{" "}
+                          {formatCurrency(shift.totalProfit)}
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1257,6 +1675,9 @@ function StaffDialog({
   isSaving: boolean;
   onSave: () => void;
 }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
@@ -1306,19 +1727,42 @@ function StaffDialog({
           </div>
           <div className="space-y-2">
             <Label>Password {form.id && "(opsional)"}</Label>
-            <Input
-              type="password"
-              value={form.password}
-              onChange={(event) => setForm({ ...form, password: event.target.value })}
-            />
+            <div className="relative mt-[0.35rem]">
+              <Input
+                type={showPassword ? "text" : "password"}
+                className="pr-10"
+                value={form.password}
+                onChange={(event) => setForm({ ...form, password: event.target.value })}
+              />
+              <button
+                type="button"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded-lg p-1 text-neutral-500 hover:bg-neutral-100"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <div className="space-y-2">
             <Label>PIN (4-8 digit)</Label>
-            <Input
-              value={form.pin}
-              onChange={(event) => setForm({ ...form, pin: event.target.value })}
-              placeholder={form.id ? "Kosongkan untuk hapus PIN" : "Contoh: 123456"}
-            />
+            <div className="relative mt-[0.35rem]">
+              <Input
+                type={showPin ? "text" : "password"}
+                className="pr-10"
+                value={form.pin}
+                onChange={(event) => setForm({ ...form, pin: event.target.value })}
+                placeholder={form.id ? "Kosongkan untuk hapus PIN" : "Contoh: 123456"}
+              />
+              <button
+                type="button"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded-lg p-1 text-neutral-500 hover:bg-neutral-100"
+                onClick={() => setShowPin((value) => !value)}
+                aria-label={showPin ? "Hide PIN" : "Show PIN"}
+              >
+                {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <div className="space-y-2 md:col-span-2">
             <Label>Default Store ID</Label>

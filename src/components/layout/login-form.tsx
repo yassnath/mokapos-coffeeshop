@@ -144,7 +144,7 @@ export function LoginForm() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
-                <div className="relative">
+                <div className="relative mt-[0.35rem]">
                   <Input
                     id="password"
                     type={showPassword ? "text" : "password"}
@@ -201,7 +201,7 @@ export function LoginForm() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="pin">PIN</Label>
-                <div className="relative">
+                <div className="relative mt-[0.35rem]">
                   <Input
                     id="pin"
                     type={showPin ? "text" : "password"}

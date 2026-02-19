@@ -7,7 +7,7 @@
   --muted-foreground: #6b6b6b;
   --card: #ffffff;
   --card-foreground: #1c1c1c;
-  --border: #e7e0d7;
+  --border: #d8cec1;
   --ring: #6f4e37;
   --primary: #6f4e37;
   --accent: #ddb892;
@@ -65,4 +65,10 @@ body {
 
 .fade-up {
   animation: fadeUp 260ms ease-out;
+}
+
+label + input,
+label + textarea,
+label + button[role="combobox"] {
+  margin-top: 0.35rem;
 }

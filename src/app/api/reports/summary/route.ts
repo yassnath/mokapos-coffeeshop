@@ -4,19 +4,48 @@ import { forbiddenResponse, getApiSession, isAllowed, unauthorizedResponse } fro
 import { prisma } from "@/lib/db";
 import { decimalToNumber } from "@/lib/serializers";
 
-function getRange(period: string) {
+function startOfDay(value: Date) {
+  const next = new Date(value);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(value: Date) {
+  const next = new Date(value);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function parseDay(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getRange(period: string, startDate?: string | null, endDate?: string | null) {
+  const parsedStart = parseDay(startDate);
+  const parsedEnd = parseDay(endDate);
+
+  if (parsedStart || parsedEnd) {
+    const start = startOfDay(parsedStart ?? parsedEnd ?? new Date());
+    const end = endOfDay(parsedEnd ?? parsedStart ?? new Date());
+
+    if (start.getTime() <= end.getTime()) return { start, end };
+    return { start: startOfDay(end), end: endOfDay(start) };
+  }
+
   const now = new Date();
-  const start = new Date(now);
+  const start = startOfDay(now);
 
   if (period === "weekly") {
-    start.setDate(now.getDate() - 7);
+    start.setDate(start.getDate() - 6);
   } else if (period === "monthly") {
-    start.setMonth(now.getMonth() - 1);
+    start.setDate(start.getDate() - 29);
   } else {
     start.setHours(0, 0, 0, 0);
   }
 
-  return { start, end: now };
+  return { start, end: endOfDay(now) };
 }
 
 export async function GET(request: Request) {
@@ -27,10 +56,12 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const storeId = searchParams.get("storeId") ?? session.user.defaultStoreId;
   const period = searchParams.get("period") ?? "daily";
+  const startDate = searchParams.get("startDate");
+  const endDate = searchParams.get("endDate");
 
   if (!storeId) return Response.json({ error: "storeId is required" }, { status: 400 });
 
-  const { start, end } = getRange(period);
+  const { start, end } = getRange(period, startDate, endDate);
 
   const orders = await prisma.order.findMany({
     where: {
@@ -40,7 +71,20 @@ export async function GET(request: Request) {
     },
     include: {
       payments: true,
-      items: true,
+      items: {
+        include: {
+          product: {
+            select: {
+              costPrice: true,
+            },
+          },
+        },
+      },
+      cashier: {
+        select: {
+          name: true,
+        },
+      },
       auditLogs: true,
     },
   });
@@ -95,7 +139,36 @@ export async function GET(request: Request) {
       metadata: audit.metadata,
     }));
 
+  const orderedItems = orders
+    .flatMap((order) =>
+      order.items.map((item) => {
+        const unitCost = item.product
+          ? decimalToNumber(item.product.costPrice)
+          : Math.max(0, decimalToNumber(item.unitPrice) - 5000);
+        const costAmount = unitCost * item.quantity;
+        const salesAmount = decimalToNumber(item.lineTotal);
+
+        return {
+          id: item.id,
+          orderNumber: order.orderNumber,
+          placedAt: order.placedAt,
+          productName: item.productName,
+          quantity: item.quantity,
+          cashierName: order.cashier?.name ?? "-",
+          waiterName: "-",
+          costAmount,
+          salesAmount,
+          profitAmount: salesAmount - costAmount,
+        };
+      }),
+    )
+    .sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime());
+
   return Response.json({
+    range: {
+      start,
+      end,
+    },
     metrics: {
       totalSales,
       totalOrders,
@@ -105,5 +178,6 @@ export async function GET(request: Request) {
     bestSellers,
     peakHours,
     discountAndVoidAudits,
+    orderedItems,
   });
 }

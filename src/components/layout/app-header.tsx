@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useState, type ComponentType } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -93,6 +94,25 @@ export function AppHeader({ name, role }: HeaderProps) {
         confirmText="Logout"
         isDanger
         onConfirm={async () => {
+          if (role === Role.CASHIER) {
+            try {
+              const response = await fetch("/api/shifts/close-active", { method: "POST" });
+              if (!response.ok) {
+                const json = await response.json().catch(() => ({}));
+                const message = json.error ?? "Gagal menutup shift sebelum logout.";
+                throw new Error(message);
+              }
+              const json = (await response.json().catch(() => ({ closedCount: 0 }))) as {
+                closedCount?: number;
+              };
+              if ((json.closedCount ?? 0) > 0) {
+                toast.success("Shift closed");
+              }
+            } catch (error) {
+              if (error instanceof Error) toast.error(error.message);
+              throw error;
+            }
+          }
           await signOut({ callbackUrl: "/login" });
         }}
       />
