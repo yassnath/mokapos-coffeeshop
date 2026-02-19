@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Solvix Moka POS
 
-## Getting Started
+Production-ready coffee shop POS web app built with Next.js App Router, TypeScript, Prisma, and PostgreSQL.
 
-First, run the development server:
+## Highlights
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Fast cashier checkout (`/pos`): search, favorites, modifier-driven items, split payments, receipt + QR, keyboard shortcuts
+- Realtime KDS (`/kds`): live queue with `New / In Progress / Ready`, status actions, optional sound alert
+- Manager dashboard (`/admin`): sales summary, best sellers, peak hours, payment breakdown, audit report, CSV export
+- Product and staff operations: product CRUD-lite, availability toggles, shift summaries, settings management
+- Role-based security: `ADMIN`, `MANAGER`, `CASHIER`, `BARISTA` with discount/void/refund restricted to manager/admin
+- Offline-friendly POS flow: local queue and auto-sync on reconnect
+- Public marketing pages (`/features`, `/pricing`, `/demo`, `/contact`) with default root redirect to `/login`
+- Responsive UI for mobile, tablet/iPad, and desktop
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Tech Stack
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Frontend: Next.js App Router + TypeScript
+- UI: TailwindCSS + shadcn-style Radix components + lucide-react icons
+- State: Zustand (local UI) + TanStack React Query (server state)
+- Backend: Next.js route handlers
+- DB: PostgreSQL + Prisma ORM
+- Auth: NextAuth (Credentials + optional Google OAuth)
+- Realtime: Server-Sent Events (SSE)
+- Validation: Zod
+- Testing: Vitest (unit) + Playwright (e2e)
+- Deployment: Docker + docker-compose
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Role Access
 
-## Learn More
+- `ADMIN`: full access (`/admin`, `/pos`, `/kds`, `/history`)
+- `MANAGER`: full operational access (`/admin`, `/pos`, `/kds`, `/history`)
+- `CASHIER`: POS + cashier history (`/pos`, `/history`)
+- `BARISTA`: KDS only (`/kds`)
 
-To learn more about Next.js, take a look at the following resources:
+Restricted actions:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Discounts: `MANAGER`, `ADMIN`
+- Void/Refund: `MANAGER`, `ADMIN`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Routes
 
-## Deploy on Vercel
+- Root redirect: `/` -> `/login`
+- Marketing: `/features`, `/pricing`, `/demo`, `/contact`
+- Login: `/login`
+- Cashier POS: `/pos`
+- Cashier history: `/history`
+- KDS: `/kds`
+- Admin dashboard: `/admin`
+- Receipt print view: `/receipt/[orderId]`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Notes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Realtime uses SSE in-process bus for simplicity.
+- For multi-instance production scaling, replace in-memory realtime bus with Redis pub/sub.
+- Currency and date formatting are Indonesian locale-ready (IDR / `id-ID`).
