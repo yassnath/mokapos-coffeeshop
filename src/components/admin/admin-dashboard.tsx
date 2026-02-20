@@ -1,6 +1,6 @@
 "use client";
 
-import { Role } from "@prisma/client";
+import { PaymentMethod, Role } from "@prisma/client";
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -69,12 +69,11 @@ type SummaryData = {
     id: string;
     orderNumber: string;
     placedAt: string;
-    productName: string;
-    quantity: number;
-    cashierName: string;
-    waiterName: string;
+    cashierUsername: string;
+    paymentMethod: string;
+    paymentMethodValue: PaymentMethod;
+    totalAmount: number;
     costAmount: number;
-    salesAmount: number;
     profitAmount: number;
   }>;
   discountAndVoidAudits: Array<{
@@ -289,6 +288,21 @@ function shiftStatusBadgeClass(status: string) {
   return "border-gray-200 bg-gray-100 text-gray-600";
 }
 
+function paymentMethodLabel(method: PaymentMethod) {
+  switch (method) {
+    case "CASH":
+      return "Cash";
+    case "CARD":
+      return "Debit/Card";
+    case "QRIS":
+      return "QRIS";
+    case "EWALLET":
+      return "E-Wallet";
+    default:
+      return method;
+  }
+}
+
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -303,12 +317,16 @@ export function AdminDashboard({ storeId, role }: Props) {
   const isAdmin = role === Role.ADMIN;
   const defaultWeeklyRange = useMemo(() => getDateRangeByPeriod("weekly"), []);
 
-  const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("weekly");
   const [overviewDateFrom, setOverviewDateFrom] = useState(defaultWeeklyRange.from);
   const [overviewDateTo, setOverviewDateTo] = useState(defaultWeeklyRange.to);
   const [shiftDateFrom, setShiftDateFrom] = useState(defaultWeeklyRange.from);
   const [shiftDateTo, setShiftDateTo] = useState(defaultWeeklyRange.to);
   const [productView, setProductView] = useState<"list" | "card">("list");
+  const [transactionDeleteId, setTransactionDeleteId] = useState<string | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<SummaryData["orderedItems"][number] | null>(
+    null,
+  );
+  const [editingPaymentMethod, setEditingPaymentMethod] = useState<PaymentMethod>("CASH");
 
   const [productDialogOpen, setProductDialogOpen] = useState(false);
   const [productForm, setProductForm] = useState<ProductFormState>(defaultProductForm);
@@ -319,11 +337,10 @@ export function AdminDashboard({ storeId, role }: Props) {
   const [staffDeleteId, setStaffDeleteId] = useState<string | null>(null);
 
   const summary = useQuery<SummaryData>({
-    queryKey: ["admin-summary", storeId, period, overviewDateFrom, overviewDateTo],
+    queryKey: ["admin-summary", storeId, overviewDateFrom, overviewDateTo],
     queryFn: async () => {
       const params = new URLSearchParams({
         storeId,
-        period,
         startDate: overviewDateFrom,
         endDate: overviewDateTo,
       });
@@ -575,6 +592,52 @@ export function AdminDashboard({ storeId, role }: Props) {
     },
   });
 
+  const updateTransactionMethod = useMutation({
+    mutationFn: async ({ id, method }: { id: string; method: PaymentMethod }) => {
+      const response = await fetch(`/api/orders/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ method }),
+      });
+      if (!response.ok) {
+        const json = await response.json().catch(() => ({}));
+        throw new Error(json.error ?? "Failed to update payment method");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast.success("Metode pembayaran diperbarui");
+      setEditingTransaction(null);
+      queryClient.invalidateQueries({
+        queryKey: ["admin-summary", storeId, overviewDateFrom, overviewDateTo],
+      });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const voidTransaction = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/orders/${id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "VOIDED", reason: "Deleted from overview table" }),
+      });
+      if (!response.ok) {
+        const json = await response.json().catch(() => ({}));
+        throw new Error(json.error ?? "Failed to delete transaction");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast.success("Transaksi dihapus");
+      setTransactionDeleteId(null);
+      queryClient.invalidateQueries({
+        queryKey: ["admin-summary", storeId, overviewDateFrom, overviewDateTo],
+      });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const selectedProductForDelete = useMemo(
     () => products.data?.products.find((product) => product.id === productDeleteId),
     [productDeleteId, products.data?.products],
@@ -584,15 +647,12 @@ export function AdminDashboard({ storeId, role }: Props) {
     () => staff.data?.users.find((user) => user.id === staffDeleteId),
     [staff.data?.users, staffDeleteId],
   );
+  const selectedTransactionForDelete = useMemo(
+    () => summary.data?.orderedItems.find((item) => item.id === transactionDeleteId),
+    [summary.data?.orderedItems, transactionDeleteId],
+  );
   const adminNavTriggerClass =
     "text-foreground hover:bg-primary hover:text-white data-[state=active]:bg-primary data-[state=active]:text-white";
-
-  const handlePeriodChange = (nextPeriod: "daily" | "weekly" | "monthly") => {
-    setPeriod(nextPeriod);
-    const range = getDateRangeByPeriod(nextPeriod);
-    setOverviewDateFrom(range.from);
-    setOverviewDateTo(range.to);
-  };
 
   return (
     <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6">
@@ -613,27 +673,7 @@ export function AdminDashboard({ storeId, role }: Props) {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant={period === "daily" ? "default" : "outline"}
-                onClick={() => handlePeriodChange("daily")}
-              >
-                Daily
-              </Button>
-              <Button
-                variant={period === "weekly" ? "default" : "outline"}
-                onClick={() => handlePeriodChange("weekly")}
-              >
-                Weekly
-              </Button>
-              <Button
-                variant={period === "monthly" ? "default" : "outline"}
-                onClick={() => handlePeriodChange("monthly")}
-              >
-                Monthly
-              </Button>
-            </div>
+          <div className="flex flex-wrap items-end justify-between gap-2">
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1">
                 <Label className="text-xs text-neutral-500">Tanggal awal</Label>
@@ -654,13 +694,14 @@ export function AdminDashboard({ storeId, role }: Props) {
                 />
               </div>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
+              className="hover:border-primary hover:bg-primary hover:text-white"
               asChild
             >
-              <a href={`/api/reports/export?storeId=${storeId}`}>
+              <a
+                href={`/api/reports/export?storeId=${storeId}&startDate=${overviewDateFrom}&endDate=${overviewDateTo}`}
+              >
                 <Download className="mr-2 h-4 w-4" /> Export CSV
               </a>
             </Button>
@@ -726,9 +767,9 @@ export function AdminDashboard({ storeId, role }: Props) {
 
               <Card className="border-border bg-card rounded-3xl">
                 <CardHeader>
-                  <CardTitle>Menu Ordered Details</CardTitle>
+                  <CardTitle>Transaction Details</CardTitle>
                   <CardDescription>
-                    Mengikuti filter period dan rentang tanggal yang dipilih.
+                    Mengikuti filter rentang tanggal yang dipilih.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -738,13 +779,12 @@ export function AdminDashboard({ storeId, role }: Props) {
                         <TableRow>
                           <TableHead>Waktu</TableHead>
                           <TableHead>Order</TableHead>
-                          <TableHead>Menu</TableHead>
-                          <TableHead>Qty</TableHead>
-                          <TableHead>Kasir</TableHead>
-                          <TableHead>Waiter</TableHead>
+                          <TableHead>Username Kasir</TableHead>
+                          <TableHead>Metode</TableHead>
+                          <TableHead>Total</TableHead>
                           <TableHead>Modal</TableHead>
-                          <TableHead>Jual</TableHead>
-                          {isAdmin && <TableHead>Profit</TableHead>}
+                          <TableHead>Profit</TableHead>
+                          <TableHead>Aksi</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -752,17 +792,36 @@ export function AdminDashboard({ storeId, role }: Props) {
                           <TableRow key={item.id}>
                             <TableCell>{formatDateTime(item.placedAt)}</TableCell>
                             <TableCell>{item.orderNumber}</TableCell>
-                            <TableCell>{item.productName}</TableCell>
-                            <TableCell>{item.quantity}</TableCell>
-                            <TableCell>{item.cashierName || "-"}</TableCell>
-                            <TableCell>{item.waiterName || "-"}</TableCell>
+                            <TableCell>{item.cashierUsername || "-"}</TableCell>
+                            <TableCell>{item.paymentMethod}</TableCell>
+                            <TableCell>{formatCurrency(item.totalAmount)}</TableCell>
                             <TableCell>{formatCurrency(item.costAmount)}</TableCell>
-                            <TableCell>{formatCurrency(item.salesAmount)}</TableCell>
-                            {isAdmin && (
-                              <TableCell className="text-success">
-                                {formatCurrency(item.profitAmount)}
-                              </TableCell>
-                            )}
+                            <TableCell className="text-success">
+                              {formatCurrency(item.profitAmount)}
+                            </TableCell>
+                            <TableCell>
+                              <div className="inline-flex items-center gap-2">
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="hover:border-primary hover:bg-primary hover:text-white"
+                                  aria-label="Edit transaction"
+                                  onClick={() => {
+                                    setEditingPaymentMethod(item.paymentMethodValue);
+                                    setEditingTransaction(item);
+                                  }}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => setTransactionDeleteId(item.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -775,35 +834,49 @@ export function AdminDashboard({ storeId, role }: Props) {
                         className="border-border space-y-2 rounded-2xl border bg-white p-3"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <div className="font-semibold">{item.productName}</div>
-                          <Badge variant="secondary">x{item.quantity}</Badge>
+                          <div className="font-semibold">{item.orderNumber}</div>
+                          <span className="text-xs text-neutral-500">{formatDateTime(item.placedAt)}</span>
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-sm">
                           <div>
-                            <span className="text-neutral-500">Order:</span> {item.orderNumber}
+                            <span className="text-neutral-500">Kasir:</span> {item.cashierUsername || "-"}
                           </div>
                           <div>
-                            <span className="text-neutral-500">Kasir:</span> {item.cashierName || "-"}
+                            <span className="text-neutral-500">Metode:</span> {item.paymentMethod}
                           </div>
                           <div>
-                            <span className="text-neutral-500">Waiter:</span> {item.waiterName || "-"}
-                          </div>
-                          <div>
-                            <span className="text-neutral-500">Waktu:</span> {formatDateTime(item.placedAt)}
+                            <span className="text-neutral-500">Total:</span>{" "}
+                            {formatCurrency(item.totalAmount)}
                           </div>
                           <div>
                             <span className="text-neutral-500">Modal:</span>{" "}
                             {formatCurrency(item.costAmount)}
                           </div>
-                          <div>
-                            <span className="text-neutral-500">Jual:</span> {formatCurrency(item.salesAmount)}
+                          <div className="col-span-2 text-success">
+                            <span className="text-neutral-500">Profit:</span>{" "}
+                            {formatCurrency(item.profitAmount)}
                           </div>
-                          {isAdmin && (
-                            <div className="col-span-2 text-success">
-                              <span className="text-neutral-500">Profit:</span>{" "}
-                              {formatCurrency(item.profitAmount)}
-                            </div>
-                          )}
+                        </div>
+                        <div className="flex justify-end gap-2 pt-1">
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="hover:border-primary hover:bg-primary hover:text-white"
+                            aria-label="Edit transaction"
+                            onClick={() => {
+                              setEditingPaymentMethod(item.paymentMethodValue);
+                              setEditingTransaction(item);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => setTransactionDeleteId(item.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </article>
                     ))}
@@ -1455,6 +1528,63 @@ export function AdminDashboard({ storeId, role }: Props) {
         }}
       />
 
+      <Dialog
+        open={Boolean(editingTransaction)}
+        onOpenChange={(open) => {
+          if (!open) setEditingTransaction(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Metode Pembayaran</DialogTitle>
+            <DialogDescription>
+              Ubah metode transaksi untuk order{" "}
+              <span className="font-medium">{editingTransaction?.orderNumber}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Metode pembayaran</Label>
+            <Select
+              value={editingPaymentMethod}
+              onValueChange={(value) => setEditingPaymentMethod(value as PaymentMethod)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="CASH">{paymentMethodLabel("CASH")}</SelectItem>
+                <SelectItem value="CARD">{paymentMethodLabel("CARD")}</SelectItem>
+                <SelectItem value="QRIS">{paymentMethodLabel("QRIS")}</SelectItem>
+                <SelectItem value="EWALLET">{paymentMethodLabel("EWALLET")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingTransaction(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!editingTransaction) return;
+                updateTransactionMethod.mutate({
+                  id: editingTransaction.id,
+                  method: editingPaymentMethod,
+                });
+              }}
+              disabled={updateTransactionMethod.isPending}
+            >
+              {updateTransactionMethod.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ConfirmDialog
         open={Boolean(productDeleteId)}
         onOpenChange={(open) => {
@@ -1467,6 +1597,21 @@ export function AdminDashboard({ storeId, role }: Props) {
         onConfirm={async () => {
           if (!productDeleteId) return;
           await deleteProduct.mutateAsync(productDeleteId);
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(transactionDeleteId)}
+        onOpenChange={(open) => {
+          if (!open) setTransactionDeleteId(null);
+        }}
+        title="Hapus transaksi?"
+        description={`Order "${selectedTransactionForDelete?.orderNumber ?? ""}" akan diubah ke status VOIDED.`}
+        confirmText="Hapus"
+        isDanger
+        onConfirm={async () => {
+          if (!transactionDeleteId) return;
+          await voidTransaction.mutateAsync(transactionDeleteId);
         }}
       />
 

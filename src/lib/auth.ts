@@ -28,15 +28,17 @@ export const authOptions: NextAuthOptions = {
         pin: { label: "PIN", type: "password" },
       },
       async authorize(credentials) {
-        const devMode = process.env.NODE_ENV === "development";
+        const safeIdentifier = credentials?.identifier?.trim() ?? "";
         const fail = (reason: string) => {
-          if (devMode) {
-            console.warn(`[auth] credentials rejected: ${reason}`);
-          }
+          // Keep this visible in production logs (Vercel) for credential debugging.
+          console.warn("[auth] credentials rejected", {
+            reason,
+            identifier: safeIdentifier || "(empty)",
+          });
           return null;
         };
 
-        const identifier = credentials?.identifier?.trim();
+        const identifier = safeIdentifier;
         if (!identifier) return fail("missing identifier");
 
         const user = await prisma.user.findFirst({

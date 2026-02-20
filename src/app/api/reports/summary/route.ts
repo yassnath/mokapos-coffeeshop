@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import { PaymentMethod, Role } from "@prisma/client";
 
 import { forbiddenResponse, getApiSession, isAllowed, unauthorizedResponse } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
@@ -48,6 +48,21 @@ function getRange(period: string, startDate?: string | null, endDate?: string | 
   return { start, end: endOfDay(now) };
 }
 
+function formatPaymentMethodLabel(method: PaymentMethod) {
+  switch (method) {
+    case "CASH":
+      return "Cash";
+    case "CARD":
+      return "Debit/Card";
+    case "QRIS":
+      return "QRIS";
+    case "EWALLET":
+      return "E-Wallet";
+    default:
+      return method;
+  }
+}
+
 export async function GET(request: Request) {
   const session = await getApiSession();
   if (!session?.user) return unauthorizedResponse();
@@ -83,6 +98,7 @@ export async function GET(request: Request) {
       cashier: {
         select: {
           name: true,
+          username: true,
         },
       },
       auditLogs: true,
@@ -140,28 +156,29 @@ export async function GET(request: Request) {
     }));
 
   const orderedItems = orders
-    .flatMap((order) =>
-      order.items.map((item) => {
+    .map((order) => {
+      const costAmount = order.items.reduce((sum, item) => {
         const unitCost = item.product
           ? decimalToNumber(item.product.costPrice)
           : Math.max(0, decimalToNumber(item.unitPrice) - 5000);
-        const costAmount = unitCost * item.quantity;
-        const salesAmount = decimalToNumber(item.lineTotal);
+        return sum + unitCost * item.quantity;
+      }, 0);
+      const totalAmount = decimalToNumber(order.totalAmount);
+      const paymentMethods = Array.from(new Set(order.payments.map((payment) => payment.method)));
+      const primaryMethod = paymentMethods[0] ?? "CASH";
 
-        return {
-          id: item.id,
-          orderNumber: order.orderNumber,
-          placedAt: order.placedAt,
-          productName: item.productName,
-          quantity: item.quantity,
-          cashierName: order.cashier?.name ?? "-",
-          waiterName: "-",
-          costAmount,
-          salesAmount,
-          profitAmount: salesAmount - costAmount,
-        };
-      }),
-    )
+      return {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        placedAt: order.placedAt,
+        cashierUsername: order.cashier?.username ?? order.cashier?.name ?? "-",
+        paymentMethod: paymentMethods.map(formatPaymentMethodLabel).join(", ") || "-",
+        paymentMethodValue: primaryMethod,
+        totalAmount,
+        costAmount,
+        profitAmount: totalAmount - costAmount,
+      };
+    })
     .sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime());
 
   return Response.json({
