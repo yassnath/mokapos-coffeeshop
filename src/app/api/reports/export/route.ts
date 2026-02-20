@@ -1,7 +1,13 @@
 import { Role } from "@prisma/client";
 import { stringify } from "csv-stringify/sync";
 
-import { forbiddenResponse, getApiSession, isAllowed, unauthorizedResponse } from "@/lib/api-auth";
+import {
+  forbiddenResponse,
+  getApiSession,
+  hasStoreAccess,
+  isAllowed,
+  unauthorizedResponse,
+} from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 import { decimalToNumber } from "@/lib/serializers";
 
@@ -43,6 +49,9 @@ export async function GET(request: Request) {
 
   if (!storeId) {
     return Response.json({ error: "storeId is required" }, { status: 400 });
+  }
+  if (!hasStoreAccess(session.user, storeId)) {
+    return forbiddenResponse("Store access denied.");
   }
 
   const orders = await prisma.order.findMany({

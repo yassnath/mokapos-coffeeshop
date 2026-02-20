@@ -18,3 +18,14 @@ export function unauthorizedResponse(message = "Unauthorized") {
 export function forbiddenResponse(message = "Forbidden") {
   return Response.json({ error: message }, { status: 403 });
 }
+
+type SessionLikeUser = {
+  role?: Role;
+  defaultStoreId?: string | null;
+};
+
+export function hasStoreAccess(user: SessionLikeUser | undefined, storeId: string | null | undefined) {
+  if (!user?.role || !storeId) return false;
+  if (user.role === Role.ADMIN) return true;
+  return user.defaultStoreId === storeId;
+}

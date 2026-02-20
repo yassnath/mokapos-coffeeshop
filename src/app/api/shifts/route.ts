@@ -1,6 +1,12 @@
 import { Role } from "@prisma/client";
 
-import { forbiddenResponse, getApiSession, isAllowed, unauthorizedResponse } from "@/lib/api-auth";
+import {
+  forbiddenResponse,
+  getApiSession,
+  hasStoreAccess,
+  isAllowed,
+  unauthorizedResponse,
+} from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 import { decimalToNumber } from "@/lib/serializers";
 
@@ -39,12 +45,16 @@ export async function GET(request: Request) {
   const session = await getApiSession();
   if (!session?.user) return unauthorizedResponse();
   if (!isAllowed(session.user.role, [Role.ADMIN, Role.MANAGER])) return forbiddenResponse();
+  const canViewCost = session.user.role === Role.ADMIN;
 
   const { searchParams } = new URL(request.url);
   const storeId = searchParams.get("storeId") ?? session.user.defaultStoreId;
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
   if (!storeId) return Response.json({ shifts: [] });
+  if (!hasStoreAccess(session.user, storeId)) {
+    return forbiddenResponse("Store access denied.");
+  }
   const range = resolveRange(startDate, endDate);
 
   const shifts = await prisma.shift.findMany({
@@ -101,8 +111,8 @@ export async function GET(request: Request) {
         expectedCash: decimalToNumber(shift.expectedCash),
         actualCash: decimalToNumber(shift.actualCash),
         totalSales,
-        totalCost,
-        totalProfit: totalSales - totalCost,
+        totalCost: canViewCost ? totalCost : null,
+        totalProfit: canViewCost ? totalSales - totalCost : null,
         user: shift.user,
         register: shift.register,
       };

@@ -73,8 +73,8 @@ type SummaryData = {
     paymentMethod: string;
     paymentMethodValue: PaymentMethod;
     totalAmount: number;
-    costAmount: number;
-    profitAmount: number;
+    costAmount: number | null;
+    profitAmount: number | null;
   }>;
   discountAndVoidAudits: Array<{
     id: string;
@@ -124,8 +124,8 @@ type ShiftData = {
     openedAt: string;
     closedAt?: string;
     totalSales: number;
-    totalCost: number;
-    totalProfit: number;
+    totalCost: number | null;
+    totalProfit: number | null;
     expectedCash: number;
     actualCash: number;
     user: { name: string; role: string };
@@ -301,6 +301,13 @@ function paymentMethodLabel(method: PaymentMethod) {
     default:
       return method;
   }
+}
+
+function paymentBreakdownLabel(method: string) {
+  if (method === "CASH" || method === "CARD" || method === "QRIS" || method === "EWALLET") {
+    return paymentMethodLabel(method);
+  }
+  return method;
 }
 
 function fileToDataUrl(file: File) {
@@ -711,6 +718,15 @@ export function AdminDashboard({ storeId, role }: Props) {
             <div className="text-sm text-neutral-600">
               <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Loading report...
             </div>
+          ) : summary.isError ? (
+            <Card className="border-border bg-card rounded-3xl">
+              <CardContent className="flex flex-col items-start gap-3 p-4 text-sm">
+                <div className="text-danger">Gagal memuat data overview.</div>
+                <Button variant="outline" size="sm" onClick={() => summary.refetch()}>
+                  <RefreshCcw className="mr-2 h-4 w-4" /> Coba lagi
+                </Button>
+              </CardContent>
+            </Card>
           ) : (
             <>
               <div className="grid gap-4 md:grid-cols-3">
@@ -734,15 +750,21 @@ export function AdminDashboard({ storeId, role }: Props) {
                     <CardTitle>Best Sellers</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
-                    {(summary.data?.bestSellers ?? []).map((item) => (
-                      <div
-                        key={item.name}
-                        className="border-border flex items-center justify-between rounded-xl border bg-white p-2"
-                      >
-                        <span>{item.name}</span>
-                        <Badge variant="secondary">{item.qty}</Badge>
+                    {(summary.data?.bestSellers ?? []).length > 0 ? (
+                      (summary.data?.bestSellers ?? []).map((item) => (
+                        <div
+                          key={item.name}
+                          className="border-border flex items-center justify-between rounded-xl border bg-white p-2"
+                        >
+                          <span>{item.name}</span>
+                          <Badge variant="secondary">{item.qty}</Badge>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="border-border rounded-xl border border-dashed bg-white p-3 text-neutral-500">
+                        Belum ada data best seller pada rentang tanggal ini.
                       </div>
-                    ))}
+                    )}
                   </CardContent>
                 </Card>
                 <Card className="border-border bg-card rounded-3xl">
@@ -750,16 +772,20 @@ export function AdminDashboard({ storeId, role }: Props) {
                     <CardTitle>Payment Breakdown</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
-                    {Object.entries(summary.data?.paymentBreakdown ?? {}).map(
-                      ([method, amount]) => (
+                    {Object.entries(summary.data?.paymentBreakdown ?? {}).length > 0 ? (
+                      Object.entries(summary.data?.paymentBreakdown ?? {}).map(([method, amount]) => (
                         <div
                           key={method}
                           className="border-border flex items-center justify-between rounded-xl border bg-white p-2"
                         >
-                          <span>{method}</span>
+                          <span>{paymentBreakdownLabel(method)}</span>
                           <span>{formatCurrency(amount)}</span>
                         </div>
-                      ),
+                      ))
+                    ) : (
+                      <div className="border-border rounded-xl border border-dashed bg-white p-3 text-neutral-500">
+                        Belum ada data pembayaran pada rentang tanggal ini.
+                      </div>
                     )}
                   </CardContent>
                 </Card>
@@ -782,104 +808,129 @@ export function AdminDashboard({ storeId, role }: Props) {
                           <TableHead>Username Kasir</TableHead>
                           <TableHead>Metode</TableHead>
                           <TableHead>Total</TableHead>
-                          <TableHead>Modal</TableHead>
-                          <TableHead>Profit</TableHead>
+                          {isAdmin && <TableHead>Modal</TableHead>}
+                          {isAdmin && <TableHead>Profit</TableHead>}
                           <TableHead>Aksi</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {(summary.data?.orderedItems ?? []).map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell>{formatDateTime(item.placedAt)}</TableCell>
-                            <TableCell>{item.orderNumber}</TableCell>
-                            <TableCell>{item.cashierUsername || "-"}</TableCell>
-                            <TableCell>{item.paymentMethod}</TableCell>
-                            <TableCell>{formatCurrency(item.totalAmount)}</TableCell>
-                            <TableCell>{formatCurrency(item.costAmount)}</TableCell>
-                            <TableCell className="text-success">
-                              {formatCurrency(item.profitAmount)}
-                            </TableCell>
-                            <TableCell>
-                              <div className="inline-flex items-center gap-2">
-                                <Button
-                                  size="icon"
-                                  variant="outline"
-                                  className="hover:border-primary hover:bg-primary hover:text-white"
-                                  aria-label="Edit transaction"
-                                  onClick={() => {
-                                    setEditingPaymentMethod(item.paymentMethodValue);
-                                    setEditingTransaction(item);
-                                  }}
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => setTransactionDeleteId(item.id)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
+                        {(summary.data?.orderedItems ?? []).length > 0 ? (
+                          (summary.data?.orderedItems ?? []).map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell>{formatDateTime(item.placedAt)}</TableCell>
+                              <TableCell>{item.orderNumber}</TableCell>
+                              <TableCell>{item.cashierUsername || "-"}</TableCell>
+                              <TableCell>{item.paymentMethod}</TableCell>
+                              <TableCell>{formatCurrency(item.totalAmount)}</TableCell>
+                              {isAdmin && <TableCell>{formatCurrency(item.costAmount ?? 0)}</TableCell>}
+                              {isAdmin && (
+                                <TableCell className="text-success">
+                                  {formatCurrency(item.profitAmount ?? 0)}
+                                </TableCell>
+                              )}
+                              <TableCell>
+                                <div className="inline-flex items-center gap-2">
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className="hover:border-primary hover:bg-primary hover:text-white"
+                                    aria-label="Edit transaction"
+                                    onClick={() => {
+                                      setEditingPaymentMethod(item.paymentMethodValue);
+                                      setEditingTransaction(item);
+                                    }}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => setTransactionDeleteId(item.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell
+                              colSpan={isAdmin ? 8 : 6}
+                              className="text-muted-foreground py-6 text-center"
+                            >
+                              Belum ada transaksi pada rentang tanggal ini.
                             </TableCell>
                           </TableRow>
-                        ))}
+                        )}
                       </TableBody>
                     </Table>
                   </div>
                   <div className="space-y-3 md:hidden">
-                    {(summary.data?.orderedItems ?? []).map((item) => (
-                      <article
-                        key={item.id}
-                        className="border-border space-y-2 rounded-2xl border bg-white p-3"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="font-semibold">{item.orderNumber}</div>
-                          <span className="text-xs text-neutral-500">{formatDateTime(item.placedAt)}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>
-                            <span className="text-neutral-500">Kasir:</span> {item.cashierUsername || "-"}
+                    {(summary.data?.orderedItems ?? []).length > 0 ? (
+                      (summary.data?.orderedItems ?? []).map((item) => (
+                        <article
+                          key={item.id}
+                          className="border-border space-y-2 rounded-2xl border bg-white p-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="font-semibold">{item.orderNumber}</div>
+                            <span className="text-xs text-neutral-500">
+                              {formatDateTime(item.placedAt)}
+                            </span>
                           </div>
-                          <div>
-                            <span className="text-neutral-500">Metode:</span> {item.paymentMethod}
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div>
+                              <span className="text-neutral-500">Kasir:</span> {item.cashierUsername || "-"}
+                            </div>
+                            <div>
+                              <span className="text-neutral-500">Metode:</span> {item.paymentMethod}
+                            </div>
+                            <div>
+                              <span className="text-neutral-500">Total:</span>{" "}
+                              {formatCurrency(item.totalAmount)}
+                            </div>
+                            {isAdmin && (
+                              <div>
+                                <span className="text-neutral-500">Modal:</span>{" "}
+                                {formatCurrency(item.costAmount ?? 0)}
+                              </div>
+                            )}
+                            {isAdmin && (
+                              <div className="col-span-2 text-success">
+                                <span className="text-neutral-500">Profit:</span>{" "}
+                                {formatCurrency(item.profitAmount ?? 0)}
+                              </div>
+                            )}
                           </div>
-                          <div>
-                            <span className="text-neutral-500">Total:</span>{" "}
-                            {formatCurrency(item.totalAmount)}
+                          <div className="flex justify-end gap-2 pt-1">
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              className="hover:border-primary hover:bg-primary hover:text-white"
+                              aria-label="Edit transaction"
+                              onClick={() => {
+                                setEditingPaymentMethod(item.paymentMethodValue);
+                                setEditingTransaction(item);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => setTransactionDeleteId(item.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
-                          <div>
-                            <span className="text-neutral-500">Modal:</span>{" "}
-                            {formatCurrency(item.costAmount)}
-                          </div>
-                          <div className="col-span-2 text-success">
-                            <span className="text-neutral-500">Profit:</span>{" "}
-                            {formatCurrency(item.profitAmount)}
-                          </div>
-                        </div>
-                        <div className="flex justify-end gap-2 pt-1">
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            className="hover:border-primary hover:bg-primary hover:text-white"
-                            aria-label="Edit transaction"
-                            onClick={() => {
-                              setEditingPaymentMethod(item.paymentMethodValue);
-                              setEditingTransaction(item);
-                            }}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => setTransactionDeleteId(item.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </article>
-                    ))}
+                        </article>
+                      ))
+                    ) : (
+                      <div className="border-border rounded-2xl border border-dashed bg-white p-4 text-sm text-neutral-500">
+                        Belum ada transaksi pada rentang tanggal ini.
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -1397,76 +1448,95 @@ export function AdminDashboard({ storeId, role }: Props) {
                       <TableHead>Register</TableHead>
                       <TableHead>Opened</TableHead>
                       <TableHead>Closed</TableHead>
-                      <TableHead>Modal</TableHead>
+                      {isAdmin && <TableHead>Modal</TableHead>}
                       <TableHead>Jual</TableHead>
                       {isAdmin && <TableHead>Profit</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(shifts.data?.shifts ?? []).map((shift) => (
-                      <TableRow key={shift.id}>
-                        <TableCell>
-                          <Badge variant="secondary" className={shiftStatusBadgeClass(shift.status)}>
-                            {shift.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{shift.user.name}</TableCell>
-                        <TableCell>{shift.register.name}</TableCell>
-                        <TableCell>{formatDateTime(shift.openedAt)}</TableCell>
-                        <TableCell>{shift.closedAt ? formatDateTime(shift.closedAt) : "-"}</TableCell>
-                        <TableCell>{formatCurrency(shift.totalCost)}</TableCell>
-                        <TableCell>{formatCurrency(shift.totalSales)}</TableCell>
-                        {isAdmin && (
-                          <TableCell className="text-success">
-                            {formatCurrency(shift.totalProfit)}
+                    {(shifts.data?.shifts ?? []).length > 0 ? (
+                      (shifts.data?.shifts ?? []).map((shift) => (
+                        <TableRow key={shift.id}>
+                          <TableCell>
+                            <Badge variant="secondary" className={shiftStatusBadgeClass(shift.status)}>
+                              {shift.status}
+                            </Badge>
                           </TableCell>
-                        )}
+                          <TableCell>{shift.user.name}</TableCell>
+                          <TableCell>{shift.register.name}</TableCell>
+                          <TableCell>{formatDateTime(shift.openedAt)}</TableCell>
+                          <TableCell>{shift.closedAt ? formatDateTime(shift.closedAt) : "-"}</TableCell>
+                          {isAdmin && <TableCell>{formatCurrency(shift.totalCost ?? 0)}</TableCell>}
+                          <TableCell>{formatCurrency(shift.totalSales)}</TableCell>
+                          {isAdmin && (
+                            <TableCell className="text-success">
+                              {formatCurrency(shift.totalProfit ?? 0)}
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell
+                          colSpan={isAdmin ? 8 : 6}
+                          className="text-muted-foreground py-6 text-center"
+                        >
+                          Belum ada shift pada rentang tanggal ini.
+                        </TableCell>
                       </TableRow>
-                    ))}
+                    )}
                   </TableBody>
                 </Table>
               </div>
               <div className="space-y-3 md:hidden">
-                {(shifts.data?.shifts ?? []).map((shift) => (
-                  <article
-                    key={shift.id}
-                    className="border-border space-y-2 rounded-2xl border bg-white p-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <Badge variant="secondary" className={shiftStatusBadgeClass(shift.status)}>
-                        {shift.status}
-                      </Badge>
-                      <span className="text-xs text-neutral-500">{shift.register.name}</span>
-                    </div>
-                    <div className="text-sm">
-                      <div>
-                        <span className="text-neutral-500">Staff:</span> {shift.user.name}
+                {(shifts.data?.shifts ?? []).length > 0 ? (
+                  (shifts.data?.shifts ?? []).map((shift) => (
+                    <article
+                      key={shift.id}
+                      className="border-border space-y-2 rounded-2xl border bg-white p-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <Badge variant="secondary" className={shiftStatusBadgeClass(shift.status)}>
+                          {shift.status}
+                        </Badge>
+                        <span className="text-xs text-neutral-500">{shift.register.name}</span>
                       </div>
-                      <div>
-                        <span className="text-neutral-500">Opened:</span>{" "}
-                        {formatDateTime(shift.openedAt)}
-                      </div>
-                      <div>
-                        <span className="text-neutral-500">Closed:</span>{" "}
-                        {shift.closedAt ? formatDateTime(shift.closedAt) : "-"}
-                      </div>
-                      <div>
-                        <span className="text-neutral-500">Modal:</span>{" "}
-                        {formatCurrency(shift.totalCost)}
-                      </div>
-                      <div>
-                        <span className="text-neutral-500">Jual:</span>{" "}
-                        {formatCurrency(shift.totalSales)}
-                      </div>
-                      {isAdmin && (
-                        <div className="text-success">
-                          <span className="text-neutral-500">Profit:</span>{" "}
-                          {formatCurrency(shift.totalProfit)}
+                      <div className="text-sm">
+                        <div>
+                          <span className="text-neutral-500">Staff:</span> {shift.user.name}
                         </div>
-                      )}
-                    </div>
-                  </article>
-                ))}
+                        <div>
+                          <span className="text-neutral-500">Opened:</span>{" "}
+                          {formatDateTime(shift.openedAt)}
+                        </div>
+                        <div>
+                          <span className="text-neutral-500">Closed:</span>{" "}
+                          {shift.closedAt ? formatDateTime(shift.closedAt) : "-"}
+                        </div>
+                        {isAdmin && (
+                          <div>
+                            <span className="text-neutral-500">Modal:</span>{" "}
+                            {formatCurrency(shift.totalCost ?? 0)}
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-neutral-500">Jual:</span>{" "}
+                          {formatCurrency(shift.totalSales)}
+                        </div>
+                        {isAdmin && (
+                          <div className="text-success">
+                            <span className="text-neutral-500">Profit:</span>{" "}
+                            {formatCurrency(shift.totalProfit ?? 0)}
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="border-border rounded-2xl border border-dashed bg-white p-4 text-sm text-neutral-500">
+                    Belum ada shift pada rentang tanggal ini.
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

@@ -1,6 +1,12 @@
 import { Role } from "@prisma/client";
 
-import { forbiddenResponse, getApiSession, isAllowed, unauthorizedResponse } from "@/lib/api-auth";
+import {
+  forbiddenResponse,
+  getApiSession,
+  hasStoreAccess,
+  isAllowed,
+  unauthorizedResponse,
+} from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 import { realtimeBus } from "@/lib/realtime";
 import { orderStatusUpdateSchema } from "@/lib/validations";
@@ -41,6 +47,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   });
 
   if (!currentOrder) return Response.json({ error: "Order not found" }, { status: 404 });
+  if (!hasStoreAccess(session.user, currentOrder.storeId)) {
+    return forbiddenResponse("Store access denied.");
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     const order = await tx.order.update({

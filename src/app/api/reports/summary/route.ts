@@ -1,6 +1,12 @@
 import { PaymentMethod, Role } from "@prisma/client";
 
-import { forbiddenResponse, getApiSession, isAllowed, unauthorizedResponse } from "@/lib/api-auth";
+import {
+  forbiddenResponse,
+  getApiSession,
+  hasStoreAccess,
+  isAllowed,
+  unauthorizedResponse,
+} from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 import { decimalToNumber } from "@/lib/serializers";
 
@@ -67,6 +73,7 @@ export async function GET(request: Request) {
   const session = await getApiSession();
   if (!session?.user) return unauthorizedResponse();
   if (!isAllowed(session.user.role, [Role.ADMIN, Role.MANAGER])) return forbiddenResponse();
+  const canViewCost = session.user.role === Role.ADMIN;
 
   const { searchParams } = new URL(request.url);
   const storeId = searchParams.get("storeId") ?? session.user.defaultStoreId;
@@ -75,6 +82,9 @@ export async function GET(request: Request) {
   const endDate = searchParams.get("endDate");
 
   if (!storeId) return Response.json({ error: "storeId is required" }, { status: 400 });
+  if (!hasStoreAccess(session.user, storeId)) {
+    return forbiddenResponse("Store access denied.");
+  }
 
   const { start, end } = getRange(period, startDate, endDate);
 
@@ -175,8 +185,8 @@ export async function GET(request: Request) {
         paymentMethod: paymentMethods.map(formatPaymentMethodLabel).join(", ") || "-",
         paymentMethodValue: primaryMethod,
         totalAmount,
-        costAmount,
-        profitAmount: totalAmount - costAmount,
+        costAmount: canViewCost ? costAmount : null,
+        profitAmount: canViewCost ? totalAmount - costAmount : null,
       };
     })
     .sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime());

@@ -1,6 +1,12 @@
 import { Prisma, Role } from "@prisma/client";
 
-import { forbiddenResponse, getApiSession, isAllowed, unauthorizedResponse } from "@/lib/api-auth";
+import {
+  forbiddenResponse,
+  getApiSession,
+  hasStoreAccess,
+  isAllowed,
+  unauthorizedResponse,
+} from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 import { buildOrderNumber } from "@/lib/order-number";
 import { realtimeBus } from "@/lib/realtime";
@@ -20,6 +26,9 @@ export async function GET(request: Request) {
   const status = searchParams.get("status");
 
   if (!storeId) return Response.json({ error: "storeId is required" }, { status: 400 });
+  if (!hasStoreAccess(session.user, storeId)) {
+    return forbiddenResponse("Store access denied.");
+  }
 
   const statuses = status?.split(",").filter(Boolean);
 
@@ -88,6 +97,9 @@ export async function POST(request: Request) {
   }
 
   const payload = parsed.data;
+  if (!hasStoreAccess(session.user, payload.storeId)) {
+    return forbiddenResponse("Store access denied.");
+  }
 
   const register = await prisma.register.findFirst({
     where: { id: payload.registerId, storeId: payload.storeId, isActive: true },

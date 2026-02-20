@@ -4,30 +4,33 @@ test("login -> create order -> pay -> KDS receives -> mark ready", async ({ page
   await page.goto("/login");
 
   await page.getByLabel("Email / Username").fill("admin@solvixpos.local");
-  await page.getByLabel("Password").fill("password");
+  await page.getByLabel("Password", { exact: true }).fill("password");
   await page.getByRole("button", { name: "Sign in" }).click();
+  await page.waitForURL(/\/(app|admin|pos|kds|history)/, { timeout: 20_000 });
 
   await page.goto("/pos");
 
-  const openShift = page.getByRole("button", { name: "Open" });
-  if (await openShift.isVisible()) {
-    await page.getByPlaceholder("Opening cash").fill("500000");
-    await openShift.click();
+  const openingCashInput = page.getByTestId("opening-cash-input");
+  if (await openingCashInput.isVisible().catch(() => false)) {
+    await openingCashInput.fill("500000");
+    await page.getByTestId("open-shift-btn").click();
   }
 
-  await page
-    .getByRole("button", { name: /Espresso|Latte|Cappuccino/ })
-    .first()
-    .click();
+  await page.getByPlaceholder("Cari menu (Ctrl+K)").fill("Butter Croissant");
+  await page.getByRole("button", { name: /Butter Croissant/i }).first().click();
+  await expect(page.getByText("1 item")).toBeVisible();
 
-  await page.getByRole("button", { name: "Continue to Payment" }).click();
-  await page.getByRole("button", { name: "Auto Balance" }).click();
-  await page.getByRole("button", { name: /Charge/ }).click();
+  await page.getByTestId("continue-payment-btn").click();
+  await page.getByTestId("auto-balance-btn").click();
+  await page.getByTestId("charge-btn").click();
 
-  await expect(page.getByText("Payment successful")).toBeVisible();
+  const paymentDialog = page.getByRole("dialog");
+  await expect(paymentDialog.getByText("Payment successful")).toBeVisible();
 
-  const orderText = await page.locator("text=/Order SVX-/").first().textContent();
-  const orderNumber = orderText?.replace("Order", "").trim() ?? "";
+  const orderText = await paymentDialog.getByText(/Order\s+/).first().textContent();
+  const orderNumber = orderText?.match(/Order\s+([A-Z0-9-]+)/)?.[1] ?? "";
+
+  await page.getByRole("button", { name: "Done" }).click();
 
   await page.goto("/kds");
   await expect(page.getByText(orderNumber)).toBeVisible({ timeout: 20_000 });

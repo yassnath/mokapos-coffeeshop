@@ -528,6 +528,7 @@ export function PosWorkspace({ storeId, registerId, initialShiftId, userRole }: 
                       <button
                         key={product.id}
                         type="button"
+                        data-testid={`product-card-${product.id}`}
                         onClick={() => addProduct(product)}
                         className="group border-border bg-background hover:border-primary w-full overflow-hidden rounded-2xl border text-left transition hover:shadow-sm"
                       >
@@ -604,11 +605,16 @@ export function PosWorkspace({ storeId, registerId, initialShiftId, userRole }: 
                       <Input
                         type="number"
                         min={0}
+                        data-testid="opening-cash-input"
                         value={openingCash}
                         onChange={(event) => setOpeningCash(Number(event.target.value) || 0)}
                         placeholder="Opening cash"
                       />
-                      <Button onClick={() => openShift.mutate()} disabled={openShift.isPending}>
+                      <Button
+                        data-testid="open-shift-btn"
+                        onClick={() => openShift.mutate()}
+                        disabled={openShift.isPending}
+                      >
                         {openShift.isPending ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
@@ -694,6 +700,7 @@ export function PosWorkspace({ storeId, registerId, initialShiftId, userRole }: 
           </Card>
 
           <Button
+            data-testid="continue-payment-btn"
             className="mt-auto h-12 w-full shrink-0 text-base font-semibold"
             disabled={!shiftId || !items.length}
             onClick={() => setPaymentDialogOpen(true)}
@@ -868,6 +875,7 @@ export function PosWorkspace({ storeId, registerId, initialShiftId, userRole }: 
                 </div>
 
                 <Button
+                  data-testid="auto-balance-btn"
                   type="button"
                   size="sm"
                   variant="outline"
@@ -929,6 +937,7 @@ export function PosWorkspace({ storeId, registerId, initialShiftId, userRole }: 
               Back
             </Button>
             <Button
+              data-testid="charge-btn"
               disabled={submitOrder.isPending || !items.length || !shiftId}
               onClick={() => void charge()}
             >

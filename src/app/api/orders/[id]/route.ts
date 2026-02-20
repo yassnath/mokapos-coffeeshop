@@ -1,7 +1,13 @@
 import { PaymentMethod, Role } from "@prisma/client";
 import { z } from "zod";
 
-import { forbiddenResponse, getApiSession, isAllowed, unauthorizedResponse } from "@/lib/api-auth";
+import {
+  forbiddenResponse,
+  getApiSession,
+  hasStoreAccess,
+  isAllowed,
+  unauthorizedResponse,
+} from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 
 const updateOrderPaymentSchema = z.object({
@@ -29,6 +35,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   });
 
   if (!existing) return Response.json({ error: "Order not found" }, { status: 404 });
+  if (!hasStoreAccess(session.user, existing.storeId)) {
+    return forbiddenResponse("Store access denied.");
+  }
   if (["VOIDED", "REFUNDED"].includes(existing.status)) {
     return Response.json({ error: "Order cannot be edited in current status." }, { status: 409 });
   }
