@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -20,8 +21,16 @@ export function MarketingNav() {
   return (
     <header className="border-border bg-background/90 sticky top-0 z-40 border-b backdrop-blur-xl">
       <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 sm:px-6">
-        <Link href="/login" className="font-display text-lg font-semibold tracking-tight">
-          Solvix POS
+        <Link href="/login" className="flex items-center gap-2">
+          <Image
+            src="/logo.png"
+            alt="Solvix POS logo"
+            width={36}
+            height={36}
+            className="h-9 w-9 rounded-lg object-cover"
+            priority
+          />
+          <span className="font-display text-lg font-semibold tracking-tight">Solvix POS</span>
         </Link>
         <nav className="hidden items-center gap-2 md:flex">
           {links.map((link) => (

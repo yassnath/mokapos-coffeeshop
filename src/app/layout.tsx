@@ -21,6 +21,11 @@ export const metadata: Metadata = {
   description:
     "Solvix POS is a modern coffee shop POS with cashier checkout, KDS realtime operations, analytics, and staff management.",
   keywords: ["coffee shop pos", "kds", "point of sale", "solvix", "moka style pos", "kasir cafe"],
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({

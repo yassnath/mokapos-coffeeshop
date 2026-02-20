@@ -2,6 +2,7 @@
 
 import { Role } from "@prisma/client";
 import { LogOut, LayoutDashboard, ShoppingCart, ChefHat, History } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -50,8 +51,16 @@ export function AppHeader({ name, role }: HeaderProps) {
       <header className="border-border bg-background/90 sticky top-0 z-40 border-b backdrop-blur-xl">
         <div className="mx-auto flex h-16 w-full items-center justify-between px-3 sm:px-5">
           <div className="flex items-center gap-3">
-            <Link href="/app" className="font-display text-lg font-semibold tracking-tight">
-              Solvix POS
+            <Link href="/app" className="flex items-center gap-2">
+              <Image
+                src="/logo.png"
+                alt="Solvix POS logo"
+                width={36}
+                height={36}
+                className="h-9 w-9 rounded-lg object-cover"
+                priority
+              />
+              <span className="font-display text-lg font-semibold tracking-tight">Solvix POS</span>
             </Link>
             <Badge variant="secondary" className="uppercase">
               {role}

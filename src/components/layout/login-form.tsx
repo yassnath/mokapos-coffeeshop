@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -122,6 +123,16 @@ export function LoginForm() {
   return (
     <Card className="border-border bg-card w-full max-w-md rounded-3xl shadow-[0_20px_52px_rgba(28,28,28,0.12)]">
       <CardHeader>
+        <div className="mb-2 flex justify-center">
+          <Image
+            src="/logo.png"
+            alt="Solvix POS logo"
+            width={56}
+            height={56}
+            className="h-14 w-14 rounded-2xl object-cover"
+            priority
+          />
+        </div>
         <CardTitle className="font-display text-2xl">Sign in to Solvix POS</CardTitle>
         <CardDescription>
           Use account credentials or quick PIN login for shift handoff.
