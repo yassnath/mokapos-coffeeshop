@@ -13,6 +13,9 @@ export async function requireSession() {
 
 export async function requireRole(allowed: Role[]) {
   const session = await requireSession();
+  if (!session.user.role || !Object.values(Role).includes(session.user.role)) {
+    redirect("/login");
+  }
   if (!allowed.includes(session.user.role)) {
     redirect("/forbidden");
   }

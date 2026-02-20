@@ -1,3 +1,4 @@
+import { Role } from "@prisma/client";
 import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/components/layout/login-form";
@@ -5,7 +6,10 @@ import { auth } from "@/lib/session";
 
 export default async function LoginPage() {
   const session = await auth();
-  if (session?.user) {
+  const role = session?.user?.role;
+  const hasValidRole = Boolean(role && Object.values(Role).includes(role));
+
+  if (session?.user && hasValidRole) {
     redirect("/app");
   }
 

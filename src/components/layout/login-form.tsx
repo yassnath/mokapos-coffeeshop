@@ -68,9 +68,11 @@ export function LoginForm() {
 
   const staffQuery = useQuery<{ users: PinUser[] }>({
     queryKey: ["pin-users"],
+    enabled: mode === "pin",
+    retry: false,
     queryFn: async () => {
       const response = await fetch("/api/staff/pin-users");
-      if (!response.ok) throw new Error("Failed to fetch staff");
+      if (!response.ok) return { users: [] };
       return response.json();
     },
   });

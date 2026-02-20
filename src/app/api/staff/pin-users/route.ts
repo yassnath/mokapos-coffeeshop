@@ -5,7 +5,6 @@ export async function GET() {
     const users = await prisma.user.findMany({
       where: {
         isActive: true,
-        pinHash: { not: null },
       },
       select: {
         id: true,
@@ -21,14 +20,6 @@ export async function GET() {
     return Response.json({ users });
   } catch (error) {
     console.error("[staff.pin-users] failed", error);
-    return Response.json(
-      {
-        error: "Failed to fetch staff PIN users",
-        ...(process.env.NODE_ENV !== "production" && error instanceof Error
-          ? { detail: error.message }
-          : {}),
-      },
-      { status: 500 },
-    );
+    return Response.json({ users: [] });
   }
 }
